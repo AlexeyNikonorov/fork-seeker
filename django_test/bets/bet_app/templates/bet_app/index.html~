@@ -1,0 +1,50 @@
+<html>
+<head>
+<script src="https://ajax.googleapis.com/ajax/libs/jquery/1.12.0/jquery.min.js"></script>
+<link rel="stylesheet" href="http://maxcdn.bootstrapcdn.com/bootstrap/3.3.6/css/bootstrap.min.css">
+<link rel="stylesheet" type="text/css" href="/static/bet_app/a.css" />
+<script>
+$(document).ready(function(){
+    $("td").click(function(){
+        var s = $(this).text();
+        var c = $(this).attr("class");
+        var e = document.querySelectorAll("td");
+        $("td.blue").removeClass("blue");
+        if (c.search("blue") == -1) {
+            for (i=0; i<e.length; i++) {
+                if (e[i].innerHTML == s) {
+                    $(e[i]).toggleClass("blue");
+                }
+            }
+        }
+    });
+});
+</script>
+</head>
+<body>
+<table class="table-condensed table-striped">
+    <thead>
+        <tr class="row">
+            <td class="#"></td>
+            <td>Team Home</td>
+            <td>Team Away</td>
+            <td align="center">Home</td>
+            <td align="center">Draw</td>
+            <td align="center">Away</td>
+        </tr>
+    </thead>
+    <tbody>
+    {% for event in all_events %}
+    <tr class="row">
+        <td class="#">{{forloop.counter}}.</td>
+        <td class="team_home">{{event.team_home}}</td>
+        <td class="team_away">{{event.team_away}}</td>
+        <td class="bet_home" align="center">{{event.bet_home}}</td>
+        <td class="bet_draw" align="center">{{event.bet_draw}}</td>
+        <td class="bet_away" align="center">{{event.bet_away}}</td>
+    </tr>
+    {% endfor %}
+    <tbody>
+</table>
+</body>
+</html>

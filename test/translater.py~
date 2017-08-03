@@ -1,0 +1,21 @@
+import socket, threading
+
+class Listener(threading.Thread):
+    def __init__(self):
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.sock.bind(('', 50007))
+        self.sock.listen(5)
+        self.listeners = []
+
+    def send(self, data):
+        while True:
+            try:
+                listener = self.listeners.pop()
+            except IndexError:
+                break
+
+    def run(self):
+        while True:
+            conn, addr = self.sock.accept()
+            self.listeners.append(conn)
+            

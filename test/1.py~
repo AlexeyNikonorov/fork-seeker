@@ -1,0 +1,7 @@
+import socket
+
+s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+s.bind(('',  50007))
+s.listen(5)
+
+conn, addr = s.accept()

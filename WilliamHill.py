@@ -1,0 +1,187 @@
+import re
+import requests
+from lxml import html
+import time, datetime
+from Event import Bookmaker, Event
+from tests import *
+from splinter import Browser
+
+
+class WilliamHill(Bookmaker):
+    def __init__(self, driver=None):
+        Bookmaker.__init__(self)
+        self.url = 'http://sports.williamhill.com/bet/en-gb'
+        self.driver = driver
+        self.date_format = re.compile('.+ (?P<day>\d{1,2}).(?P<month>\w{3}) .+')
+
+    def load(self):
+        sport = 'football'
+        if self.driver is None:
+            self.driver = Browser()
+            #self.driver = Browser('phantomjs', load_images=False, wait_time=5)
+
+        visit(self.driver, self.url)
+        if self.driver.is_element_present_by_css('section.error-container'):
+            click(self.driver, '#continue-to-site')
+        if self.driver.is_element_present_by_css('div#modalPopup2'):
+            click(self.driver, '#cancelBtn')
+
+        click(self.driver, '#%s' % sport)
+        click(self.driver, '#HL_sport_9>div[style="float: right;"]>a')
+        wait(self.driver)
+        self.html = html.document_fromstring(self.driver.html)
+        self.parse()
+        next_link = self.driver.find_by_css('div.paginationDailyMatches li[id]+li>a')
+        while 'Future Matches' not in next_link.text:
+            next_link.click()
+            wait(self.driver)
+            self.html = html.document_fromstring(self.driver.html)
+            try:
+                self.parse()
+            except TypeError:
+                print 'retry'; time.sleep(2)
+                try:
+                    self.html = html.document_fromstring(self.driver.html)
+                    self.parse(); print '   success'
+                except TypeError:
+                    pass
+            finally:
+                next_link = self.driver.find_by_css('div.paginationDailyMatches li[id]+li>a')
+
+    def load_live(self):
+        if self.driver is None:
+            self.driver = Browser()
+
+        visit(self.driver, self.url); time.sleep(2)
+        if self.driver.is_element_present_by_css('section.error-container'):
+            click(self.driver, '#continue-to-site'); time.sleep(2)
+        if self.driver.is_element_present_by_css('div#modalPopup2'):
+            click(self.driver, '#cancelBtn'); time.sleep(2)
+
+        visit(self.driver, self.url+'/betlive/9')
+
+    def parse_live(self):
+        self.html = html.document_fromstring(self.driver.html)
+
+        root = cssselect(self.html, 'div#ip_sport_9')
+        sport = cssselect(root, 'div.subtitlediv>h2')
+        leagues = root.cssselect('div#ip_sport_9>div#ip_sport_9_types>div:not(#ip_type_18351)')
+        for league in leagues:
+            name = text_content(cssselect(league, 'div>h3>a'))
+            events = league.cssselect('table.tableData>tbody>tr.rowLive')
+            for event in events:
+                data = {'live': True, 'league': name}
+                data.update(self.live_event_parser(event))
+                self.store(data)
+                
+    def live_event_parser(self, event):
+        output = dict()
+        col = cssselect(event, 'td')
+        output['time'] = cssselect(col[0], 'a')
+        output['score'] = cssselect(col[1], 'a')
+        output['teams'] = cssselect(col[2], 'a>span')
+        output['odds'] = cssselect(col[4:7], 'div.eventprice,div.eventpriceup,div.eventpricedown')
+        return text_content(output)
+
+    def update(self):
+        self.html = html.document_fromstring(self.driver.html)
+
+        root = cssselect(self.html, 'div#ip_sport_9')
+        sport = cssselect(root, 'div.subtitlediv>h2')
+        leagues = root.cssselect('div#ip_sport_9>div#ip_sport_9_types>div:not(#ip_type_18351)')
+        for league in leagues:
+            name = text_content(cssselect(league, 'div>h3>a'))
+            events = league.cssselect('table.tableData>tbody>tr.rowLive')
+            for event in events:
+                data = {'live': True, 'league': name}
+                updated, updates = self.check_update(event)
+                if updated:
+                    data.update(updates)
+                    self.store(data)
+                
+    def check_update(self, event):
+        output = dict()
+        updated = False
+        col = cssselect(event, 'td')
+        output['score'] = cssselect(col[1], 'a')
+        output['teams'] = cssselect(col[2], 'a>span')
+        bet_home = col[4].cssselect('div.eventpriceup,div.eventpricedown')
+        bet_draw = col[5].cssselect('div.eventpriceup,div.eventpricedown')
+        bet_away = col[6].cssselect('div.eventpriceup,div.eventpricedown')
+        if len(bet_home) == 1:
+            updated = True
+            output['bet home'] = bet_home[0]
+        if len(bet_draw) == 1:
+            updated = True
+            output['bet draw'] = bet_draw[0]
+        if len(bet_away) == 1:
+            updated = True
+            output['bet away'] = bet_away[0]
+        return updated, text_content(output)
+
+    def parse(self, live=False):
+        root = cssselect(self.html, 'div#contentHolder>div#contentA')
+        if live:
+            date = datetime.date.today()
+        else:
+            date = cssselect(root, 'div.paginationDailyMatches>ul>li[id]>a>span')
+            date = text_content(date)
+            date = self.to_date(date)
+        leagues = root.cssselect('div#ip_sport_0_types>div')
+        for league in leagues:
+            league_name = league.cssselect('h3>a')
+            if not live:
+                events = league.cssselect('table.tableData>tbody>tr.rowOdd')
+                live_events = []
+            else:
+                events = []
+                live_events = league.cssselect('table.tableData>tbody>tr.rowLive')
+            for event in live_events:
+                new_event = Event()
+                new_event['date'] = date
+                new_event['league'] = text_content(league_name)
+                event_data = self.event_parser(event, live=True)
+                new_event.load(event_data)
+                self.store(new_event)
+            for event in events:
+                new_event = Event(date=date)
+                new_event['league'] = text_content(league_name)
+                event_data = self.event_parser(event)
+                new_event.load(event_data)
+                self.store(new_event)
+
+    def event_parser(self, event, live=False):
+        output = dict()
+        output['live'] = live
+        if live:
+            score = event.cssselect('td.leftPad:nth-child(2)>a.Score')
+            output['score'] = score
+        else:
+            event_time = event.cssselect('td.leftPad:nth-child(2)>a.leftPad')
+            if len(event_time) == 0:
+                event_time = event.cssselect('td.leftPad:nth-child(2)>a.Time')
+            if len(event_time) == 0:
+                event_time = event.cssselect('td.leftPad:nth-child(2)>span')
+            output['live at'] = event_time
+        teams = event.cssselect('td.leftPad:nth-child(3)>a>span')
+        output['teams'] = teams
+        market_link = get(event.cssselect('td.leftPad:nth-child(3)>a'), 'href')
+        output['market link'] = market_link
+        odds = event.cssselect('td>div[class*="priceholder"]>div.eventprice')
+        output['odds'] = odds
+        return text_content(output)
+
+
+if __name__ == '__main__':
+    b = WilliamHill()
+    b.load_live(); time.sleep(5)
+
+    b.parse_live(); time.sleep(1)
+    while True:
+        b.update(); time.sleep(1)
+
+
+
+
+
+
